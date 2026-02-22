@@ -207,6 +207,79 @@ def main():
     app.add_handler(conv_handler)
     app.run_polling()
 
+import os
+import smtplib
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
+from telegram import Update, ReplyKeyboardMarkup, ReplyKeyboardRemove
+from telegram.ext import (
+    ApplicationBuilder,
+    CommandHandler,
+    MessageHandler,
+    ConversationHandler,
+    ContextTypes,
+    filters,
+)
+
+# Загрузка настроек
+TOKEN = os.getenv("BOT_TOKEN")
+EMAIL_SENDER = os.getenv("EMAIL_SENDER")
+EMAIL_PASSWORD = os.getenv("EMAIL_PASSWORD")
+EMAIL_RECEIVER = os.getenv("EMAIL_RECEIVER")
+
+# Состояния анкеты
+(
+    FIO, DOB, CITY, CONTACT, EMAIL, DOC,
+    HEIGHT, WEIGHT, CLOTHES, BREAST, HAIR, EYES, TATTOO, PHOTOS,
+    EXPERIENCE, HOURS, DAYS, TIME, PERSONALITY, LIMITS
+) = range(20)
+
+# Функция для отправки почты
+def send_email(subject, body):
+    try:
+        msg = MIMEMultipart()
+        msg['From'] = EMAIL_SENDER
+        msg['To'] = EMAIL_RECEIVER
+        msg['Subject'] = subject
+        msg.attach(MIMEText(body, 'plain'))
+
+        # Настройки для Gmail/Mail.ru/Yandex (порт 465 для SSL)
+        with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
+            server.login(EMAIL_SENDER, EMAIL_PASSWORD)
+            server.sendmail(EMAIL_SENDER, EMAIL_RECEIVER, msg.as_string())
+        return True
+    except Exception as e:
+        print(f"Ошибка при отправке почты: {e}")
+        return False
+
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    context.user_data.clear()
+    await update.message.reply_text("Здравствуйте! Начинаем заполнение анкеты.\nВведите Ваше ФИО:")
+    return FIO
+
+# ... (все твои промежуточные функции fio, dob, city и т.д. остаются без изменений) ...
+# ВАЖНО: В функции photos добавь проверку на получение картинок (как в твоем коде)
+
+async def limits(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    context.user_data["Границы"] = update.message.text
+
+    # Формируем текст письма из собранных данных
+    summary = "📋 Новая анкета из Telegram-бота:\n\n"
+    for key, value in context.user_data.items():
+        if key != "Фото":
+            summary += f"{key}: {value}\n"
+
+    # Пытаемся отправить на почту
+    if send_email(f"Новая анкета: {context.user_data.get('ФИО')}", summary):
+        await update.message.reply_text("✅ Ваша анкета успешно отправлена администрации!", reply_markup=ReplyKeyboardRemove())
+    else:
+        await update.message.reply_text("❌ Ошибка при отправке на почту. Но данные сохранены.", reply_markup=ReplyKeyboardRemove())
+    
+    await update.message.reply_text(f"Ваше резюме:\n{summary}")
+    return ConversationHandler.END
+
+# ... (остальная часть main без изменений, убедись что все состояния прописаны)
+
 
 if __name__ == "__main__":
     main()
