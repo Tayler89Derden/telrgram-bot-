@@ -1,4 +1,7 @@
 import os
+import smtplib
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
 from telegram import Update, ReplyKeyboardMarkup, ReplyKeyboardRemove
 from telegram.ext import (
     ApplicationBuilder,
@@ -9,176 +12,176 @@ from telegram.ext import (
     filters,
 )
 
+# --- НАСТРОЙКИ (берутся из Render Environment) ---
 TOKEN = os.getenv("BOT_TOKEN")
+EMAIL_SENDER = os.getenv("EMAIL_SENDER")
+EMAIL_PASSWORD = os.getenv("EMAIL_PASSWORD")
+EMAIL_RECEIVER = os.getenv("EMAIL_RECEIVER")
 
+# Состояния анкеты (20 этапов)
 (
     FIO, DOB, CITY, CONTACT, EMAIL, DOC,
     HEIGHT, WEIGHT, CLOTHES, BREAST, HAIR, EYES, TATTOO, PHOTOS,
-    EXPERIENCE, CAMERA, HOURS, DAYS, TIME, EQUIPMENT,
-    PERSONALITY, LIMITS, SUMMARY
-) = range(23)
+    EXPERIENCE, HOURS, DAYS, TIME, PERSONALITY, LIMITS
+) = range(20)
 
+# --- ФУНКЦИЯ ОТПРАВКИ ПОЧТЫ ---
+def send_email(subject, body):
+    try:
+        msg = MIMEMultipart()
+        msg['From'] = EMAIL_SENDER
+        msg['To'] = EMAIL_RECEIVER
+        msg['Subject'] = subject
+        msg.attach(MIMEText(body, 'plain'))
 
+        # Для Gmail/Mail.ru/Yandex используем SSL порт 465
+        # Если используешь Gmail, хост: smtp.gmail.com
+        # Если Mail.ru, хост: smtp.mail.ru
+        with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
+            server.login(EMAIL_SENDER, EMAIL_PASSWORD)
+            server.sendmail(EMAIL_SENDER, EMAIL_RECEIVER, msg.as_string())
+        return True
+    except Exception as e:
+        print(f"Ошибка SMTP: {e}")
+        return False
+
+# --- ОБРАБОТЧИКИ АНКЕТЫ ---
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data.clear()
-    await update.message.reply_text("Введите ФИО:")
+    await update.message.reply_text("Здравствуйте! Введите Ваше ФИО:")
     return FIO
-
 
 async def fio(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data["ФИО"] = update.message.text
     await update.message.reply_text("Дата рождения (18+):")
     return DOB
 
-
 async def dob(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data["Дата рождения"] = update.message.text
     await update.message.reply_text("Город проживания:")
     return CITY
 
-
 async def city(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data["Город"] = update.message.text
-    await update.message.reply_text("Телефон / Telegram / WhatsApp:")
+    await update.message.reply_text("Контакт (Тел/ТГ):")
     return CONTACT
-
 
 async def contact(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data["Контакт"] = update.message.text
-    await update.message.reply_text("Email:")
+    await update.message.reply_text("Ваш Email:")
     return EMAIL
-
 
 async def email(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data["Email"] = update.message.text
-    keyboard = [["Да", "Нет"]]
-    await update.message.reply_text(
-        "Документ подтверждающий возраст?",
-        reply_markup=ReplyKeyboardMarkup(keyboard, one_time_keyboard=True)
-    )
+    kb = [["Да", "Нет"]]
+    await update.message.reply_text("Документ подтверждающий возраст есть?", reply_markup=ReplyKeyboardMarkup(kb, one_time_keyboard=True))
     return DOC
-
 
 async def doc(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data["Документ"] = update.message.text
     await update.message.reply_text("Рост:", reply_markup=ReplyKeyboardRemove())
     return HEIGHT
 
-
 async def height(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data["Рост"] = update.message.text
     await update.message.reply_text("Вес:")
     return WEIGHT
-
 
 async def weight(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data["Вес"] = update.message.text
     await update.message.reply_text("Размер одежды:")
     return CLOTHES
 
-
 async def clothes(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data["Размер одежды"] = update.message.text
     await update.message.reply_text("Размер груди:")
     return BREAST
-
 
 async def breast(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data["Размер груди"] = update.message.text
     await update.message.reply_text("Цвет волос:")
     return HAIR
 
-
 async def hair(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data["Цвет волос"] = update.message.text
     await update.message.reply_text("Цвет глаз:")
     return EYES
 
-
 async def eyes(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data["Цвет глаз"] = update.message.text
-    await update.message.reply_text("Есть ли тату/пирсинг? (описать):")
+    await update.message.reply_text("Тату/пирсинг:")
     return TATTOO
 
-
 async def tattoo(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    context.user_data["Тату/пирсинг"] = update.message.text
+    context.user_data["Тату"] = update.message.text
     context.user_data["Фото"] = []
-    await update.message.reply_text("Пришлите 3–5 фото без фильтров (лицо + полный рост).")
+    await update.message.reply_text("Пришлите 3 фото (по одному).")
     return PHOTOS
-
 
 async def photos(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.message.photo:
         context.user_data["Фото"].append(update.message.photo[-1].file_id)
-
-    if len(context.user_data["Фото"]) >= 3:
-        await update.message.reply_text("Был ли опыт? (опишите)")
-        return EXPERIENCE
-    else:
-        await update.message.reply_text(f"Получено {len(context.user_data['Фото'])} фото. Нужно минимум 3.")
+    
+    count = len(context.user_data["Фото"])
+    if count < 3:
+        await update.message.reply_text(f"Получено {count}/3. Жду еще.")
         return PHOTOS
-
+    
+    await update.message.reply_text("Опыт работы:")
+    return EXPERIENCE
 
 async def experience(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data["Опыт"] = update.message.text
-    await update.message.reply_text("Сколько часов в день готовы работать?")
+    await update.message.reply_text("Часов в день?")
     return HOURS
-
 
 async def hours(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data["Часы"] = update.message.text
-    await update.message.reply_text("Сколько дней в неделю?")
+    await update.message.reply_text("Дней в неделю?")
     return DAYS
-
 
 async def days(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data["Дни"] = update.message.text
-    keyboard = [["Утро", "День", "Вечер", "Ночь"]]
-    await update.message.reply_text(
-        "Предпочитаемое время:",
-        reply_markup=ReplyKeyboardMarkup(keyboard, one_time_keyboard=True)
-    )
+    kb = [["Утро", "День", "Вечер", "Ночь"]]
+    await update.message.reply_text("Время:", reply_markup=ReplyKeyboardMarkup(kb, one_time_keyboard=True))
     return TIME
-
 
 async def time(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data["Время"] = update.message.text
-    await update.message.reply_text("Опишите личные качества:")
+    await update.message.reply_text("Личные качества:", reply_markup=ReplyKeyboardRemove())
     return PERSONALITY
 
-
 async def personality(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    context.user_data["Личные качества"] = update.message.text
-    await update.message.reply_text("Что допустимо в работе? (опишите)")
+    context.user_data["Качества"] = update.message.text
+    await update.message.reply_text("Что допустимо в работе?")
     return LIMITS
-
 
 async def limits(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data["Границы"] = update.message.text
+    
+    # Формируем текст
+    summary = "📋 НОВАЯ АНКЕТА:\n\n"
+    for k, v in context.user_data.items():
+        if k != "Фото": summary += f"{k}: {v}\n"
 
-    summary = "\n\n📋 Ваша анкета:\n\n"
-    for key, value in context.user_data.items():
-        if key != "Фото":
-            summary += f"{key}: {value}\n"
-
-    await update.message.reply_text(summary, reply_markup=ReplyKeyboardRemove())
-    await update.message.reply_text("Спасибо! Анкета отправлена.")
-
+    # Отправка
+    await update.message.reply_text("Отправляю анкету...")
+    if send_email(f"Анкета: {context.user_data.get('ФИО')}", summary):
+        await update.message.reply_text("✅ Успешно отправлено на почту!")
+    else:
+        await update.message.reply_text("❌ Ошибка почты. Свяжитесь с админом.")
+    
     return ConversationHandler.END
 
-
-async def edit(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    context.user_data.clear()
-    await update.message.reply_text("Начинаем редактирование заново.")
-    return await start(update, context)
-
-
 def main():
-    app = ApplicationBuilder().token(TOKEN).build()
+    if not TOKEN: 
+        print("Ошибка: BOT_TOKEN не найден!")
+        return
 
-    conv_handler = ConversationHandler(
-        entry_points=[CommandHandler("start", start), CommandHandler("edit", edit)],
+    app = ApplicationBuilder().token(TOKEN).build()
+    
+    conv = ConversationHandler(
+        entry_points=[CommandHandler("start", start)],
         states={
             FIO: [MessageHandler(filters.TEXT & ~filters.COMMAND, fio)],
             DOB: [MessageHandler(filters.TEXT & ~filters.COMMAND, dob)],
@@ -201,85 +204,12 @@ def main():
             PERSONALITY: [MessageHandler(filters.TEXT & ~filters.COMMAND, personality)],
             LIMITS: [MessageHandler(filters.TEXT & ~filters.COMMAND, limits)],
         },
-        fallbacks=[],
+        fallbacks=[CommandHandler("start", start)],
     )
-
-    app.add_handler(conv_handler)
-    app.run_polling()
-
-import os
-import smtplib
-from email.mime.text import MIMEText
-from email.mime.multipart import MIMEMultipart
-from telegram import Update, ReplyKeyboardMarkup, ReplyKeyboardRemove
-from telegram.ext import (
-    ApplicationBuilder,
-    CommandHandler,
-    MessageHandler,
-    ConversationHandler,
-    ContextTypes,
-    filters,
-)
-
-# Загрузка настроек
-TOKEN = os.getenv("BOT_TOKEN")
-EMAIL_SENDER = os.getenv("EMAIL_SENDER")
-EMAIL_PASSWORD = os.getenv("EMAIL_PASSWORD")
-EMAIL_RECEIVER = os.getenv("EMAIL_RECEIVER")
-
-# Состояния анкеты
-(
-    FIO, DOB, CITY, CONTACT, EMAIL, DOC,
-    HEIGHT, WEIGHT, CLOTHES, BREAST, HAIR, EYES, TATTOO, PHOTOS,
-    EXPERIENCE, HOURS, DAYS, TIME, PERSONALITY, LIMITS
-) = range(20)
-
-# Функция для отправки почты
-def send_email(subject, body):
-    try:
-        msg = MIMEMultipart()
-        msg['From'] = EMAIL_SENDER
-        msg['To'] = EMAIL_RECEIVER
-        msg['Subject'] = subject
-        msg.attach(MIMEText(body, 'plain'))
-
-        # Настройки для Gmail/Mail.ru/Yandex (порт 465 для SSL)
-        with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
-            server.login(EMAIL_SENDER, EMAIL_PASSWORD)
-            server.sendmail(EMAIL_SENDER, EMAIL_RECEIVER, msg.as_string())
-        return True
-    except Exception as e:
-        print(f"Ошибка при отправке почты: {e}")
-        return False
-
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    context.user_data.clear()
-    await update.message.reply_text("Здравствуйте! Начинаем заполнение анкеты.\nВведите Ваше ФИО:")
-    return FIO
-
-# ... (все твои промежуточные функции fio, dob, city и т.д. остаются без изменений) ...
-# ВАЖНО: В функции photos добавь проверку на получение картинок (как в твоем коде)
-
-async def limits(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    context.user_data["Границы"] = update.message.text
-
-    # Формируем текст письма из собранных данных
-    summary = "📋 Новая анкета из Telegram-бота:\n\n"
-    for key, value in context.user_data.items():
-        if key != "Фото":
-            summary += f"{key}: {value}\n"
-
-    # Пытаемся отправить на почту
-    if send_email(f"Новая анкета: {context.user_data.get('ФИО')}", summary):
-        await update.message.reply_text("✅ Ваша анкета успешно отправлена администрации!", reply_markup=ReplyKeyboardRemove())
-    else:
-        await update.message.reply_text("❌ Ошибка при отправке на почту. Но данные сохранены.", reply_markup=ReplyKeyboardRemove())
     
-    await update.message.reply_text(f"Ваше резюме:\n{summary}")
-    return ConversationHandler.END
-
-# ... (остальная часть main без изменений, убедись что все состояния прописаны)
-
+    app.add_handler(conv)
+    print("Бот запущен...")
+    app.run_polling()
 
 if __name__ == "__main__":
     main()
