@@ -19,41 +19,55 @@ EMAIL_SENDER = os.getenv("EMAIL_SENDER")
 EMAIL_PASSWORD = os.getenv("EMAIL_PASSWORD")
 EMAIL_RECEIVER = os.getenv("EMAIL_RECEIVER")
 
-# Состояния (19)
+# Состояния анкеты (19)
 FIO, DOB, CITY, CONTACT, EMAIL, DOC, HEIGHT, WEIGHT, CLOTHES, BREAST, \
     HAIR, EYES, TATTOO, PHOTOS, EXPERIENCE, HOURS, DAYS, TIME, LIMITS = range(19)
 
 
 def send_email(subject: str, body: str) -> bool:
-    print(f"[EMAIL] Попытка отправки от {EMAIL_SENDER} → {EMAIL_RECEIVER}")
+    print("[EMAIL DEBUG] === Начало отправки email ===")
+    print(f"[EMAIL DEBUG] Sender: {EMAIL_SENDER or 'НЕ ЗАДАН!!!'}")
+    print(f"[EMAIL DEBUG] Receiver: {EMAIL_RECEIVER or 'НЕ ЗАДАН!!!'}")
+    print(f"[EMAIL DEBUG] Password length: {len(EMAIL_PASSWORD) if EMAIL_PASSWORD else 'ПУСТОЙ!!!'} chars")
+    
     if not all([EMAIL_SENDER, EMAIL_PASSWORD, EMAIL_RECEIVER]):
-        print("[EMAIL] Ошибка: отсутствует одна из переменных окружения")
+        print("[EMAIL ERROR] Отсутствует хотя бы одна переменная окружения для email")
         return False
 
     try:
+        import socket
+        print("[EMAIL DEBUG] Тест соединения к smtp.gmail.com:465...")
+        socket.create_connection(("smtp.gmail.com", 465), timeout=10)
+        print("[EMAIL DEBUG] Сокет-соединение открыто успешно!")
+
         msg = MIMEMultipart()
         msg['From'] = EMAIL_SENDER
         msg['To'] = EMAIL_RECEIVER
         msg['Subject'] = subject
         msg.attach(MIMEText(body, 'plain', 'utf-8'))
 
-        print("[EMAIL] Подключаемся к smtp.gmail.com:465...")
-        with smtplib.SMTP_SSL("smtp.gmail.com", 465, timeout=20) as server:
-            print("[EMAIL] Логин...")
+        print("[EMAIL DEBUG] Создаём SMTP_SSL соединение...")
+        with smtplib.SMTP_SSL("smtp.gmail.com", 465, timeout=30) as server:
+            print("[EMAIL DEBUG] Попытка login...")
             server.login(EMAIL_SENDER, EMAIL_PASSWORD)
-            print("[EMAIL] Отправка...")
+            print("[EMAIL DEBUG] Login успешен")
+            print("[EMAIL DEBUG] Отправка сообщения...")
             server.sendmail(EMAIL_SENDER, EMAIL_RECEIVER, msg.as_string())
-        print("[EMAIL] Успешно отправлено (по крайней мере, сервер принял)")
+            print("[EMAIL DEBUG] sendmail завершён без исключений")
+        
+        print("[EMAIL DEBUG] === Email успешно отправлен (сервер принял) ===")
         return True
 
     except Exception as e:
-        print(f"[EMAIL] ОШИБКА: {type(e).__name__}: {str(e)}")
+        print(f"[EMAIL CRITICAL] ОШИБКА: {type(e).__name__}: {str(e)}")
+        import traceback
+        traceback.print_exc()
         return False
 
 
 # ─── ШАГИ АНКЕТЫ ─────────────────────────────────────────────────────────────
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    print(f"[DEBUG] /start от пользователя {update.effective_user.id}")
+    print(f"[DEBUG] /start от {update.effective_user.id}")
     await update.message.reply_text(
         "Привет! Заполним анкету.\n\nФИО полностью:",
         reply_markup=ReplyKeyboardRemove()
@@ -88,7 +102,7 @@ async def contact_step(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
 
 async def email_step(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     context.user_data["Email"] = update.message.text.strip()
-    await update.message.reply_text("Документ (паспорт серия/номер или '-'):")
+    await update.message.reply_text("Документ (паспорт или '-'):")
     return DOC
 
 
@@ -130,34 +144,31 @@ async def hair_step(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
 
 async def eyes_step(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     context.user_data["Глаза"] = update.message.text.strip()
-    await update.message.reply_text("Татуировки / пирсинг (опиши или 'нет'):")
+    await update.message.reply_text("Тату / пирсинг (опиши или 'нет'):")
     return TATTOO
 
 
 async def tattoo_step(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     context.user_data["Тату / пирсинг"] = update.message.text.strip()
-    await update.message.reply_text("Отправь фото (можно несколько, по одному или пачкой):")
+    await update.message.reply_text("Отправь фото (можно несколько):")
     return PHOTOS
 
 
 async def photos_step(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     print(f"[DEBUG] photos_step вызван, user={update.effective_user.id}")
-
-    photo_count = 0
+    
     if update.message.photo:
-        photo_count = len(update.message.photo)
-        context.user_data["Фото"] = f"{photo_count} фото (как photo)"
-        print(f"[DEBUG] Обработано {photo_count} фото")
+        count = len(update.message.photo)
+        context.user_data["Фото"] = f"{count} фото"
+        print(f"[DEBUG] Обработано {count} фото")
     elif update.message.document:
-        context.user_data["Фото"] = "1+ документ(ов) отправлено"
-        print("[DEBUG] Обработан документ вместо фото")
+        context.user_data["Фото"] = "Документ(ы) отправлен(ы)"
+        print("[DEBUG] Обработан документ")
     else:
-        context.user_data["Фото"] = "Медиа получено, но тип не распознан"
-        print("[DEBUG] Не PHOTO и не DOCUMENT")
+        context.user_data["Фото"] = "Медиа получено"
+        print("[DEBUG] Неизвестный тип медиа")
 
-    await update.message.reply_text(
-        "Фото принято, спасибо!\n\nОпыт работы (кратко):"
-    )
+    await update.message.reply_text("Фото принято!\n\nОпыт работы (кратко):")
     return EXPERIENCE
 
 
@@ -177,7 +188,7 @@ async def days_step(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     context.user_data["Дни"] = update.message.text.strip()
     kb = [["Утро", "День"], ["Вечер", "Ночь"]]
     await update.message.reply_text(
-        "Время суток:",
+        "Предпочтительное время суток:",
         reply_markup=ReplyKeyboardMarkup(kb, one_time_keyboard=True, resize_keyboard=True)
     )
     return TIME
@@ -195,7 +206,6 @@ async def time_step(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
 async def limits_step(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     context.user_data["Ограничения"] = update.message.text.strip()
 
-    # Собираем анкету
     summary = "📋 АНКЕТА\n" + "═" * 50 + "\n"
     for k, v in context.user_data.items():
         if k != "Фото":
@@ -209,22 +219,21 @@ async def limits_step(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int
     )
 
     if success:
-        await update.message.reply_text("✅ Анкета отправлена! Спасибо!")
+        await update.message.reply_text("✅ Анкета отправлена на почту! Спасибо!")
     else:
         await update.message.reply_text(
-            "Анкета собрана, но письмо не ушло.\n"
-            "(Вероятно, бесплатный тариф Render блокирует SMTP. "
-            "Проверь логи или перейди на платный тариф / внешний сервис)"
+            "⚠️ Не удалось отправить анкету на почту.\n"
+            "Проверь логи Render — там детальная диагностика.\n"
+            "Данные анкеты ниже (не потеряны):"
         )
-        # Выводим summary в чат для теста
-        await update.message.reply_text("Вот что собралось:\n\n" + summary)
+        await update.message.reply_text(summary)
 
     context.user_data.clear()
     return ConversationHandler.END
 
 
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    await update.message.reply_text("Отменили.", reply_markup=ReplyKeyboardRemove())
+    await update.message.reply_text("Анкета отменена.", reply_markup=ReplyKeyboardRemove())
     context.user_data.clear()
     return ConversationHandler.END
 
@@ -232,11 +241,11 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
 # ─── ЗАПУСК ──────────────────────────────────────────────────────────────────
 def main():
     if not TOKEN:
-        print("!!! BOT_TOKEN отсутствует в переменных окружения → выход")
+        print("!!! BOT_TOKEN отсутствует → выход")
         return
 
-    print(f"[START] BOT_TOKEN найден, длина: {len(TOKEN)}")
-    print("[START] Запуск polling...")
+    print("[START] BOT_TOKEN найден, длина:", len(TOKEN))
+    print("[START] Запуск бота...")
 
     app = ApplicationBuilder().token(TOKEN).build()
 
@@ -256,12 +265,7 @@ def main():
             HAIR: [MessageHandler(filters.TEXT & ~filters.COMMAND, hair_step)],
             EYES: [MessageHandler(filters.TEXT & ~filters.COMMAND, eyes_step)],
             TATTOO: [MessageHandler(filters.TEXT & ~filters.COMMAND, tattoo_step)],
-            PHOTOS: [
-                MessageHandler(
-                    filters.PHOTO | filters.Document.ALL,  # ← фикс: ловим и фото, и файлы
-                    photos_step
-                )
-            ],
+            PHOTOS: [MessageHandler(filters.PHOTO | filters.Document.ALL, photos_step)],
             EXPERIENCE: [MessageHandler(filters.TEXT & ~filters.COMMAND, experience_step)],
             HOURS: [MessageHandler(filters.TEXT & ~filters.COMMAND, hours_step)],
             DAYS: [MessageHandler(filters.TEXT & ~filters.COMMAND, days_step)],
