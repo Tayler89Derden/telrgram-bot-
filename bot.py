@@ -1,93 +1,111 @@
 import os
 import logging
+import asyncio
 import smtplib
 from email.mime.text import MIMEText
-from telegram import Update
-from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters, CallbackContext
 
-# Настройка логирования (чтобы видеть ошибки в консоли/логах Render)
+from telegram import Update
+from telegram.ext import (
+    ApplicationBuilder,
+    CommandHandler,
+    MessageHandler,
+    filters,
+    ContextTypes,
+)
+
+# Настройка логирования (видно в консоли / логах Render)
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     level=logging.INFO
 )
 logger = logging.getLogger(__name__)
 
-# Переменные окружения (из скриншота, но без пробелов в пароле)
-# В Render добавь их в Environment Variables
-BOT_TOKEN = os.environ.get('BOT_TOKEN', '8266619758:AAFcWOk4ybVNC_-TZU1QcCxFPCfjMqD26I')
-EMAIL_SENDER = os.environ.get('EMAIL_SENDER', 'lastudioonline@gmail.com')
-EMAIL_RECEIVER = os.environ.get('EMAIL_RECEIVER', 'lastudioonline@gmail.com')
-EMAIL_PASSWORD = os.environ.get('EMAIL_PASSWORD', 'qfowkjvpehjenlip')  # Без пробелов!
+# Переменные из Environment Variables в Render (добавь их там!)
+BOT_TOKEN = os.getenv("BOT_TOKEN")
+EMAIL_SENDER = os.getenv("EMAIL_SENDER")
+EMAIL_RECEIVER = os.getenv("EMAIL_RECEIVER")
+EMAIL_PASSWORD = os.getenv("EMAIL_PASSWORD")
 
-# Порт для webhook (Render назначит PORT автоматически)
-PORT = int(os.environ.get('PORT', 8443))
+if not BOT_TOKEN:
+    logger.error("BOT_TOKEN не найден в переменных окружения!")
+    raise ValueError("BOT_TOKEN обязателен")
 
-# Функция отправки email с полной отладкой
-async def send_email(subject: str, body: str):
+# Порт от Render (по умолчанию 10000, если не задан)
+PORT = int(os.getenv("PORT", "10000"))
+
+# Функция отправки email (оставил почти как было, добавил async и логи)
+async def send_email(subject: str, body: str) -> None:
     try:
         msg = MIMEText(body)
         msg['Subject'] = subject
         msg['From'] = EMAIL_SENDER
         msg['To'] = EMAIL_RECEIVER
 
-        # Подключение к Gmail (порт 587 + STARTTLS — самый надёжный)
-        server = smtplib.SMTP('smtp.gmail.com', 587)
-        server.starttls()  # Шифрование
-        server.login(EMAIL_SENDER, EMAIL_PASSWORD)
-        server.send_message(msg)
-        server.quit()
-
-        logger.info("Email успешно отправлен!")
-        return True
-
+        with smtplib.SMTP_SSL('smtp.gmail.com', 465) as server:
+            server.login(EMAIL_SENDER, EMAIL_PASSWORD)
+            server.send_message(msg)
+        
+        logger.info("Email успешно отправлен")
     except Exception as e:
-        logger.error(f"Ошибка при отправке email: {str(e)}")
-        return False
+        logger.error(f"Ошибка отправки email: {e}")
 
-# Пример обработчика /start
-async def start(update: Update, context: CallbackContext):
-    await update.message.reply_text("Привет! Это бот с анкетой. Напиши что-нибудь, и я отправлю на email.")
 
-# Пример обработчика сообщений (здесь логика анкеты — адаптируй под свою)
-async def handle_message(update: Update, context: CallbackContext):
-    user_message = update.message.text
-    logger.info(f"Получено сообщение: {user_message}")
+# Пример хендлера /start
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    await update.message.reply_text("Привет! Я твой бот на Render с webhook.\nНапиши что-нибудь — я повторю.")
 
-    # Здесь твоя логика анкеты (сбор данных)
-    # Предположим, что после анкеты отправляем email
-    subject = "Новое сообщение от бота"
-    body = f"Пользователь {update.message.from_user.username} написал: {user_message}"
 
-    if await send_email(subject, body):
-        await update.message.reply_text("Сообщение отправлено на email!")
-    else:
-        await update.message.reply_text("Ошибка отправки email. Проверь логи.")
+# Пример эхо-хендлера (для всех текстовых сообщений)
+async def echo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    text = update.message.text
+    await update.message.reply_text(f"Ты написал: {text}")
+    
+    # Пример: отправляем email при каждом сообщении (убери или измени условие)
+    # await send_email("Новое сообщение от бота", f"Пользователь: {update.effective_user.username}\nТекст: {text}")
 
-# Обработчик ошибок (чтобы бот не падал молча)
-async def error_handler(update: Update, context: CallbackContext):
-    logger.error(f"Ошибка: {context.error}")
 
-def main():
-    print("[START] BOT_TOKEN найден, длина:", len(BOT_TOKEN))
-    print("[START] Запуск бота...")
-
-    # Создание приложения (python-telegram-bot v21+)
-    application = ApplicationBuilder().token(BOT_TOKEN).build()
-
-    # Добавляем обработчики
-    application.add_handler(CommandHandler("start", start))
-    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-    application.add_error_handler(error_handler)
-
-    # Запуск с webhook (чтобы избежать конфликтов getUpdates на Render)
-    # Render даёт https://{project-name}.onrender.com бесплатно
-    webhook_url = f"https://{os.environ['RENDER_EXTERNAL_HOSTNAME']}/{BOT_TOKEN}"
-    application.run_webhook(
-        listen="0.0.0.0",
-        port=PORT,
-        url_path=BOT_TOKEN,
-        webhook_url=webhook_url
+async def main() -> None:
+    # Строим приложение
+    application = (
+        ApplicationBuilder()
+        .token(BOT_TOKEN)
+        .build()
     )
 
-if __name__ == '__main__':
-    main()
+    # Добавляем твои хендлеры здесь
+    application.add_handler(CommandHandler("start", start))
+    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, echo))
+
+    # Здесь добавь остальные свои хендлеры, job_queue и т.д.
+
+    # Получаем hostname от Render[](https://твой-сервис.onrender.com)
+    host = os.getenv("RENDER_EXTERNAL_HOSTNAME")
+    if not host:
+        logger.error("RENDER_EXTERNAL_HOSTNAME не найден — это критично!")
+        raise ValueError("Запускай только на Render или укажи WEBHOOK_HOST вручную")
+
+    webhook_url = f"https://{host}/{BOT_TOKEN}"   # путь = токен (самый безопасный вариант)
+    url_path = BOT_TOKEN
+
+    logger.info(f"Устанавливаем webhook: {webhook_url}")
+
+    # Запускаем webhook-сервер (самый простой способ)
+    await application.run_webhook(
+        listen="0.0.0.0",
+        port=PORT,
+        url_path=url_path,
+        webhook_url=webhook_url,
+        drop_pending_updates=True,          # очищаем очередь старых обновлений
+        allowed_updates=Update.ALL_TYPES,   # или укажи только нужные: ["message", "callback_query"]
+        # secret_token="твой_секретный_токен",  # опционально, для защиты
+    )
+
+    # run_webhook блокирует выполнение, поэтому код ниже не нужен обычно
+    # Но если хочешь что-то делать после запуска — используй job_queue или отдельные задачи
+
+
+if __name__ == "__main__":
+    try:
+        asyncio.run(main())
+    except (KeyboardInterrupt, SystemExit):
+        logger.info("Бот остановлен")
