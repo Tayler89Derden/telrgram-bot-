@@ -6,35 +6,37 @@ from email.mime.text import MIMEText
 
 from telegram import Update
 from telegram.ext import (
-    ApplicationBuilder,
+    Application,
     CommandHandler,
     MessageHandler,
     filters,
     ContextTypes,
 )
 
-# Настройка логирования (видно в консоли / логах Render)
+# Логирование — видно в Render Logs
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     level=logging.INFO
 )
 logger = logging.getLogger(__name__)
 
-# Переменные из Environment Variables в Render (добавь их там!)
+# Обязательные переменные из Render Environment Variables
 BOT_TOKEN = os.getenv("BOT_TOKEN")
+if not BOT_TOKEN:
+    raise ValueError("BOT_TOKEN не задан в Environment Variables Render!")
+
 EMAIL_SENDER = os.getenv("EMAIL_SENDER")
 EMAIL_RECEIVER = os.getenv("EMAIL_RECEIVER")
-EMAIL_PASSWORD = os.getenv("EMAIL_PASSWORD")
+EMAIL_PASSWORD = os.getenv("EMAIL_PASSWORD")  # Используй App Password от Google!
 
-if not BOT_TOKEN:
-    logger.error("BOT_TOKEN не найден в переменных окружения!")
-    raise ValueError("BOT_TOKEN обязателен")
-
-# Порт от Render (по умолчанию 10000, если не задан)
+# Порт от Render (обычно 10000 на free tier)
 PORT = int(os.getenv("PORT", "10000"))
 
-# Функция отправки email (оставил почти как было, добавил async и логи)
 async def send_email(subject: str, body: str) -> None:
+    if not all([EMAIL_SENDER, EMAIL_RECEIVER, EMAIL_PASSWORD]):
+        logger.warning("Email переменные не заданы — пропускаем отправку")
+        return
+
     try:
         msg = MIMEText(body)
         msg['Subject'] = subject
@@ -44,68 +46,71 @@ async def send_email(subject: str, body: str) -> None:
         with smtplib.SMTP_SSL('smtp.gmail.com', 465) as server:
             server.login(EMAIL_SENDER, EMAIL_PASSWORD)
             server.send_message(msg)
-        
-        logger.info("Email успешно отправлен")
+
+        logger.info(f"Email отправлен: {subject}")
     except Exception as e:
         logger.error(f"Ошибка отправки email: {e}")
 
 
-# Пример хендлера /start
+# Пример: /start
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    await update.message.reply_text("Привет! Я твой бот на Render с webhook.\nНапиши что-нибудь — я повторю.")
+    await update.message.reply_text(
+        "Привет! Я бот на Render с webhook.\n"
+        "Напиши сообщение — я повторю + отправлю email (если настроено)."
+    )
 
 
-# Пример эхо-хендлера (для всех текстовых сообщений)
+# Пример: эхо + email при сообщении
 async def echo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     text = update.message.text
-    await update.message.reply_text(f"Ты написал: {text}")
-    
-    # Пример: отправляем email при каждом сообщении (убери или измени условие)
-    # await send_email("Новое сообщение от бота", f"Пользователь: {update.effective_user.username}\nТекст: {text}")
+    user = update.effective_user
+    reply = f"Ты написал: {text}\n(от {user.username or user.full_name})"
+
+    await update.message.reply_text(reply)
+
+    # Отправляем email (раскомментируй или измени условие)
+    # await send_email(
+    #     "Новое сообщение в боте",
+    #     f"Пользователь: {user.username or user.id}\nТекст: {text}"
+    # )
 
 
 async def main() -> None:
-    # Строим приложение
-    application = (
-        ApplicationBuilder()
-        .token(BOT_TOKEN)
-        .build()
-    )
+    application = Application.builder().token(BOT_TOKEN).build()
 
-    # Добавляем твои хендлеры здесь
+    # ← Добавь здесь ВСЕ свои хендлеры
     application.add_handler(CommandHandler("start", start))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, echo))
 
-    # Здесь добавь остальные свои хендлеры, job_queue и т.д.
+    # Можно добавить job_queue, другие handlers, persistence и т.д.
 
-    # Получаем hostname от Render[](https://твой-сервис.onrender.com)
+    # Хост от Render (автоматически: твой-сервис.onrender.com)
     host = os.getenv("RENDER_EXTERNAL_HOSTNAME")
     if not host:
-        logger.error("RENDER_EXTERNAL_HOSTNAME не найден — это критично!")
-        raise ValueError("Запускай только на Render или укажи WEBHOOK_HOST вручную")
+        raise RuntimeError("RENDER_EXTERNAL_HOSTNAME не найден — запуск только на Render!")
 
-    webhook_url = f"https://{host}/{BOT_TOKEN}"   # путь = токен (самый безопасный вариант)
-    url_path = BOT_TOKEN
+    webhook_url = f"https://{host}/{BOT_TOKEN}"
+    url_path = BOT_TOKEN  # Безопасно: путь = токен
 
-    logger.info(f"Устанавливаем webhook: {webhook_url}")
+    logger.info(f"Запуск webhook на: {webhook_url} (порт {PORT})")
 
-    # Запускаем webhook-сервер (самый простой способ)
     await application.run_webhook(
         listen="0.0.0.0",
         port=PORT,
         url_path=url_path,
         webhook_url=webhook_url,
-        drop_pending_updates=True,          # очищаем очередь старых обновлений
-        allowed_updates=Update.ALL_TYPES,   # или укажи только нужные: ["message", "callback_query"]
-        # secret_token="твой_секретный_токен",  # опционально, для защиты
+        drop_pending_updates=True,          # Очищает старые обновления при рестарте
+        allowed_updates=Update.ALL_TYPES,   # Или укажи только нужные: ["message"]
+        bootstrap_retries=5,                # Пытается 5 раз при сетевых проблемах
+        # secret_token="мой_секрет",        # Опционально: для защиты от фейковых запросов
     )
-
-    # run_webhook блокирует выполнение, поэтому код ниже не нужен обычно
-    # Но если хочешь что-то делать после запуска — используй job_queue или отдельные задачи
 
 
 if __name__ == "__main__":
     try:
         asyncio.run(main())
     except (KeyboardInterrupt, SystemExit):
-        logger.info("Бот остановлен")
+        logger.info("Бот остановлен нормально")
+    except Exception as e:
+        logger.error(f"Критическая ошибка запуска: {e}", exc_info=True)
+        raise
