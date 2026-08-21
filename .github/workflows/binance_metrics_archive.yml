@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - 'scripts/download_binance_metrics_archive.py'
+      - 'scripts/run_senior_2024_2025.py'
       - '.github/workflows/binance_metrics_archive.yml'
 
 permissions:
@@ -19,15 +20,21 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
+      - name: Install replay dependencies
+        run: pip install --disable-pip-version-check numpy pandas requests
       - name: Download official Binance metrics
         run: python -u scripts/download_binance_metrics_archive.py | tee binance_metrics_archive.log
-      - name: Upload archive
+      - name: Run frozen Senior Williams 2024-2025 replay
+        run: python -u scripts/run_senior_2024_2025.py | tee senior_2024_2025.log
+      - name: Upload archive and Senior evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: binance-metrics-2024-2025
+          name: binance-metrics-senior-2024-2025
           path: |
             binance_metrics_archive.log
+            senior_2024_2025.log
             artifacts/binance_metrics_2024_2025
+            artifacts/senior_2024_2025
           if-no-files-found: warn
           retention-days: 30
