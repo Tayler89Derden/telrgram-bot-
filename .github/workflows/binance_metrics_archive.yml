@@ -1,0 +1,33 @@
+name: Binance Data Vision Metrics Archive
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'scripts/download_binance_metrics_archive.py'
+      - '.github/workflows/binance_metrics_archive.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  archive:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Download official Binance metrics
+        run: python -u scripts/download_binance_metrics_archive.py | tee binance_metrics_archive.log
+      - name: Upload archive
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: binance-metrics-2024-2025
+          path: |
+            binance_metrics_archive.log
+            artifacts/binance_metrics_2024_2025
+          if-no-files-found: warn
+          retention-days: 30
