@@ -1,0 +1,35 @@
+name: AIRM Expansion 4H Audit
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'scripts/audit_expansion_4h_2024_2025.py'
+      - '.github/workflows/expansion_4h_audit.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  expansion-4h-audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install dependencies
+        run: pip install --disable-pip-version-check numpy pandas requests
+      - name: Run 4H audit
+        run: python -u scripts/audit_expansion_4h_2024_2025.py | tee expansion_4h_audit.log
+      - name: Upload evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: airm-expansion-4h-audit
+          path: |
+            expansion_4h_audit.log
+            artifacts/expansion_4h_audit
+          if-no-files-found: warn
+          retention-days: 30
