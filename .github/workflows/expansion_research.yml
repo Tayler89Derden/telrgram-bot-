@@ -6,6 +6,11 @@ on:
     paths:
       - 'scripts/research_expansion_2024_2025.py'
       - '.github/workflows/expansion_research.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'scripts/research_expansion_2024_2025.py'
+      - '.github/workflows/expansion_research.yml'
 
 permissions:
   contents: read
