@@ -1,0 +1,35 @@
+name: AIRM SMA Regime Research
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'scripts/research_sma_regimes.py'
+      - '.github/workflows/sma_research.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  sma-research:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install dependencies
+        run: pip install --disable-pip-version-check numpy pandas requests
+      - name: Run causal SMA regime study
+        run: python -u scripts/research_sma_regimes.py | tee sma_research.log
+      - name: Upload SMA evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: airm-sma-regime-research
+          path: |
+            sma_research.log
+            artifacts/sma_research
+          if-no-files-found: warn
+          retention-days: 30
