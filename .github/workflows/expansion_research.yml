@@ -1,0 +1,35 @@
+name: AIRM Expansion 2024-2025 Research
+
+on:
+  push:
+    branches: [research-binance-data-vision-2024]
+    paths:
+      - 'scripts/research_expansion_2024_2025.py'
+      - '.github/workflows/expansion_research.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  expansion-research:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install dependencies
+        run: pip install --disable-pip-version-check numpy pandas requests
+      - name: Run chronological expansion research
+        run: python -u scripts/research_expansion_2024_2025.py | tee expansion_research.log
+      - name: Upload evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: airm-expansion-2024-2025
+          path: |
+            expansion_research.log
+            artifacts/expansion_2024_2025
+          if-no-files-found: warn
+          retention-days: 30
